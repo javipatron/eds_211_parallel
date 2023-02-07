@@ -1,0 +1,146 @@
+---
+title: "parallel_playground"
+output: html_document
+date: "2023-02-06"
+---
+
+```{r setup, (echo = TRUE, message = F, warning = F)}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+
+library(tidyverse)
+library(parallel)
+library(furrr)
+library(raster)
+library(tictoc)
+
+```
+
+```{r}
+rast_fs <- list.files("data", full.names = TRUE)
+r <- raster(rast_fs[1])
+plot(r)
+
+df <- as.data.frame(r, xy = TRUE) %>% 
+  setNames(c("x", "y", "z")) %>% 
+  drop_na() %>% 
+  mutate(type = case_when(z < -1 ~ "low",
+                          z < .25 ~ "medium",
+                          z < 0.5 ~ "high",
+                          TRUE ~ "very high"))
+
+summary_df <- df %>% 
+  group_by(type) %>% 
+  summarize(n_cells = n())
+  
+```
+
+### For loop
+
+```{r}
+
+system.time({
+  
+  
+  out_list_loop <- vector("list", length = length(rast_fs)) %>% 
+    setNames(rast_fs)
+  
+  for (f in rast_fs) {
+    
+    rast_fs <- list.files("data", full.names = TRUE)
+    
+    
+    r <- raster(f)
+    
+    
+    df <- as.data.frame(r, xy = TRUE) %>% 
+      setNames(c("x", "y", "z")) %>% 
+      drop_na() %>% 
+      mutate(type = case_when(z < -1 ~ "low",
+                              z < .25 ~ "medium",
+                              z < 0.5 ~ "high",
+                              TRUE ~ "very high"))
+    
+    summary_df <- df %>% 
+      group_by(type) %>% 
+      summarize(n_cells = n(),
+                f = basename(f))
+    
+    out_list_loop[[f]] <- summary_df
+    
+    
+  }
+})
+```
+
+Create a function
+
+```{r}
+
+process_rast_file <- function(f) {
+  
+  r <- raster(f)
+  df <- as.data.frame(r, xy = T) %>% 
+    setNames(c("x", "y", "z")) %>% 
+    mutate(type = case_when(
+      z < 0.1 ~ "low",
+      z < 0.25 ~ "med",
+      z < 0.5 ~ "high",
+      TRUE ~ "VERY HIGH"))
+  
+  summary_df <- df %>% 
+    group_by(type) %>% 
+    summarise(n_cells = n(),
+              f = basename(f))
+  return(summary_df)
+  
+}
+```
+
+### laapply
+```{r}
+tic()
+
+out_lit_lapply <- lapply(X = rast_fs,
+                         FUN = process_rast_file)
+
+toc()
+
+
+```
+
+# Mc lapply
+```{r}
+tic()
+
+out_lit_mclapply <- parallel::mclapply(X = rast_fs,
+                                       FUN = process_rast_filel,
+                                       mc.cores = 4)
+toc()
+```
+
+### Purrr
+```{r}
+
+tic()
+
+out_lit_mclapply <- purrr::map(.x = rast_fs,
+                               .f = process_rast_file)
+toc()
+
+```
+
+
+### Furrr
+```{r}
+plan(multisesion, workers = 4)
+tic()
+
+out_lit_furrr <- furrr::future_map(.x = rast_fs,
+                                   .f = process_rast_file)
+
+toc()
+
+```
+
+
+
